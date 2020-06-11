@@ -1,6 +1,6 @@
 #! /bin/sh
 
-# curl -OL https://github.com/catalinii/btrace/raw/master/btrace/btrace
+# curl -OL https://raw.githubusercontent.com/catalinii/btrace/master/btrace
 
 if [ -z "$BTRACE_HOME" -o ! -d "$BTRACE_HOME" ]; then
   # resolve links - $0 could be a link to btrace's home
@@ -17,7 +17,7 @@ fi
 
 
 for lof in libbtrace.so btrace-client.jar btrace-agent.jar btrace-boot.jar Profiling.java ArgArray.java; do
-[ -f "${BTRACE_HOME}/${lof}" ] || curl -sfo ${BTRACE_HOME}/${lof} -L https://raw.githubusercontent.com/catalinii/btrace/raw/master/${lof}
+[ -f "${BTRACE_HOME}/${lof}" ] || curl -sfo ${BTRACE_HOME}/${lof} -L https://raw.githubusercontent.com/catalinii/btrace/master/${lof}
 done
 
 if [ -f "${BTRACE_HOME}/btrace-client.jar" ]; then
