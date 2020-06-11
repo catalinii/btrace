@@ -11,7 +11,7 @@ if [ -z "$BTRACE_HOME" -o ! -d "$BTRACE_HOME" ]; then
   if [ -z "$PRG" ]; then
     PRG=$0
   fi
-  BTRACE_HOME=$(dirname "$PRG")/..
+  BTRACE_HOME=$(dirname "$PRG")
   BTRACE_HOME=$(cd "$BTRACE_HOME" && pwd)
 fi
 
