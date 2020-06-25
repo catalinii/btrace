@@ -2,18 +2,16 @@
 
 # The directory patch in the local directory should have all the class that needs to be replaced
 # eg: patch/org/apache/hadoop/ipc/Client.java
-# invocation:
-# ./m 7 "org.apache.hadoop.ipc.Client\$Connection" patch/org/apache/hadoop/ipc/Client.java
 
 if [ "x$1" = "x" ]; then
-	echo "Syntax: $0 pid <class_name> <class.java>";
+	echo "Syntax: $0 pid <class_name>\neg: $0 7 "org.apache.hadoop.ipc.Client\$Connection";
 	exit 1;
 fi
 pid="$1"
 cn="$2"
 cl=`echo "${cn}" | sed 's/\./\//g'`
 rp="patch/$cl.class"
-rpc="$3"
+rpc="`echo "${cn}" | sed 's/\./\//g'| sed 's/\$.*//'`.java"
 
 if [ ! -f ${rp} ]; then
 	echo "Make sure ${rp} and ${rpc} exists. $rpc should be inside of patch directory (eg: patch/org/apache/hadoop/ipc/Client.java "
