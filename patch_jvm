@@ -1,4 +1,4 @@
-#! /bin/bash
+#! /bin/bash -e
 
 # The directory patch in the local directory should have all the class that needs to be replaced
 # eg: patch/org/apache/hadoop/ipc/Client.java
