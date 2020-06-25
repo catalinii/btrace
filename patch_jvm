@@ -1,0 +1,149 @@
+#! /bin/bash
+
+# The directory patch in the local directory should have all the class that needs to be replaced
+# eg: patch/org/apache/hadoop/ipc/Client.java
+# invocation:
+# ./m 7 "org.apache.hadoop.ipc.Client\$Connection" patch/org/apache/hadoop/ipc/Client.java
+
+if [ "x$1" = "x" ]; then
+	echo "Syntax: $0 pid <class_name> <class.java>";
+	exit 1;
+fi
+pid="$1"
+cn="$2"
+cl=`echo "${cn}" | sed 's/\./\//g'`
+rp="patch/$cl.class"
+rpc="$3"
+
+if [ ! -f ${rp} ]; then
+	echo "Make sure ${rp} and ${rpc} exists. $rpc should be inside of patch directory (eg: patch/org/apache/hadoop/ipc/Client.java "
+	exit 0;
+fi
+
+if [ "${JAVA_HOME}" = "" ]; then
+        export JAVA_HOME="$(dirname $(dirname `readlink /proc/${1}/exe`))"
+fi
+
+cat <<EOF> jp.java
+import com.sun.tools.attach.*;
+
+import java.io.*;
+import java.util.Properties;
+
+public class jp {
+  public static void main( String[] asArgs ) throws Exception {
+    if ( (asArgs.length < 4) || (asArgs.length % 2 != 0) ) {
+      System.out.println("Usage: jp <agent_jar> <jvm_pid> <class_name> <new_class_file>\n");
+      System.exit(1);
+    }
+
+    String s_agent_jar = (new File(asArgs[0])).getAbsolutePath();
+    String s_jvm_pid = asArgs[1];
+
+    // Attach to the target JVM.
+    VirtualMachine vm = null;
+    try {
+      vm = VirtualMachine.attach( s_jvm_pid );
+    } catch (IOException e) {
+      if ( e.getMessage().equals("well-known file is not secure") ) {
+        throw new Exception("This usually means you are running jp as a different user than the target JVM.", e);
+      }
+      throw e;
+    } catch (AttachNotSupportedException e) {
+      if ( e.getMessage().equals("Unable to open socket file: target process not responding or HotSpot VM not loaded") ) {
+        throw new Exception("This usually means you are running jp as a different user than the target JVM.", e);
+      }
+      throw e;
+    }
+
+    // Package up the class to be patched into a java properties string.
+    Properties p = new Properties();
+    for ( int i=2; i < asArgs.length; i = i + 2 ) {
+      p.setProperty(asArgs[i], asArgs[i+1]);
+    }
+    p.setProperty("__agent_jar", s_agent_jar);
+    StringWriter sw = new StringWriter();
+    p.store(sw, null);
+
+    // Load the agent into the target JVM and pass the arguments.
+    vm.loadAgent(s_agent_jar, sw.toString());
+
+    System.out.println("Agent injection was successful.\nSee stdout of the target JVM for information about the class redefinitions.\n");
+  }
+}
+EOF
+
+cat <<EOF> jp_agent.java
+import java.lang.instrument.*;
+
+import java.io.*;
+import java.util.*;
+import java.util.zip.*;
+import java.lang.Class;
+
+public class jp_agent {
+  public static void agentmain( String args, Instrumentation inst ) {
+    System.out.println("Number of classes loaded into this JVM: " + inst.getAllLoadedClasses().length);
+
+    Properties p = new Properties();
+    // Deserialize the properties from the args string.
+    try {
+      p.load(new StringReader(args));
+    } catch (Exception e) {
+      System.out.println("Caught Exception: " + e);
+      e.printStackTrace();
+    }
+
+    String s_agent_jar = p.getProperty("__agent_jar");
+
+    // System.out.println("p: " + p);
+
+    Class[] aClasses = inst.getAllLoadedClasses();
+    for ( int i=0; i < aClasses.length; i++ ) {
+      Class cls = aClasses[i];
+      String sClsName = cls.getName();
+      String sClsFile = p.getProperty(sClsName, null);
+      if ( sClsFile == null ) continue;
+
+      System.out.println("Redefining class '" + sClsName + "' (hc=" + cls.hashCode() + ") with the class in file '" + sClsFile + "'.");
+
+      // We could cache the loaded bytes pack into the <p> property bag. -dw
+      try {
+        byte[] abBuf = new byte[4096];
+//        InputStream is = jp_agent.class.getResourceAsStream(sClsFile);
+        ZipFile zf = new ZipFile(s_agent_jar);
+        InputStream is = zf.getInputStream(zf.getEntry(sClsFile));
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        int iLen = 0;
+        while ( (iLen=is.read(abBuf)) > 0 ) {
+          baos.write(abBuf, 0, iLen);
+        }
+        is.close();
+        baos.close();
+        ClassDefinition oClsDef = new ClassDefinition(cls, baos.toByteArray());
+        inst.redefineClasses(oClsDef);
+      } catch (Exception e) {
+        System.out.println("Caught Exception: " + e);
+        e.printStackTrace();
+      }
+    }
+  }
+}
+EOF
+
+cat <<EOF> manifest.mf
+Agent-Class: jp_agent
+Can-Redefine-Classes: true
+EOF
+
+
+
+${JAVA_HOME}/bin/javac -cp $(lsof -p ${1} | grep jar | awk '{print $9;}' | xargs | sed 's/ /:/g') $rpc
+${JAVA_HOME}/bin/javac jp_agent.java
+${JAVA_HOME}/bin/javac -cp ${JAVA_HOME}/lib/tools.jar jp.java
+
+${JAVA_HOME}/bin/jar cvfm jp.jar manifest.mf jp_agent.class jp.class  patch/
+
+echo Runtime "$a" "$cn" on JVM "$jvm_pid"
+
+/usr/lib/jvm/java-8-openjdk-amd64/bin/java -cp /usr/lib/jvm/java-8-openjdk-amd64/lib/tools.jar:jp.jar jp jp.jar $1 $cn $rp
